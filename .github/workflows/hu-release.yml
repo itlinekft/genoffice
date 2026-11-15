@@ -1,0 +1,121 @@
+name: Hungarian build release
+
+# The fork's own release: Windows x64 NSIS installer and macOS arm64 + x64 dmg,
+# from whichever ref the workflow is dispatched on (the hu-release branch).
+# Packaging is upstream's own (root `dist:win` / `dist:mac` scripts). Builds are
+# unsigned: no Apple credentials are present, so the mac path ad-hoc signs and
+# skips notarization (upstream's documented contributor path), and Windows is
+# unsigned (SmartScreen asks once). The release is created as a DRAFT so it can
+# be checked before publishing.
+# Started from the Actions tab or:
+#   gh workflow run hu-release.yml -R itlinekft/genoffice -f version=0.13.0-hu.1 -f tag_target=<sha>
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version, e.g. 0.13.0-hu.1"
+        type: string
+        required: true
+      tag_target:
+        description: "Commit the release tag points at (default: the dispatched sha)"
+        type: string
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+env:
+  VERSION: ${{ inputs.version }}
+
+jobs:
+  windows:
+    name: Windows x64
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable branch, 2026-07
+        with:
+          toolchain: stable
+      - name: Set the packaged version
+        shell: bash
+        run: npm pkg set version="$VERSION" -w @genoffice/shell
+      - name: Build and package
+        shell: bash
+        run: npm ci && npm run dist:win
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-windows-x64
+          path: apps/shell/release/*.exe
+          if-no-files-found: error
+
+  macos:
+    name: macOS arm64 + x64
+    runs-on: macos-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable branch, 2026-07
+        with:
+          toolchain: stable
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
+      - name: Set the packaged version
+        run: npm pkg set version="$VERSION" -w @genoffice/shell
+      # GENOFFICE_MAC_X64=1 packages the Intel dmg alongside arm64; the
+      # universal sidecar and OCR helper are built by the dist:mac chain.
+      - name: Build and package
+        env:
+          GENOFFICE_MAC_X64: "1"
+        run: npm ci && npm run dist:mac
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-macos
+          path: apps/shell/release/*.dmg
+          if-no-files-found: error
+
+  release:
+    name: Draft release
+    needs: [windows, macos]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Fixed asset names, checksums, draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd dist
+          ls -l
+          exe=$(ls *.exe | head -n1)
+          dmg_arm64=$(ls *arm64*.dmg | head -n1)
+          dmg_x64=$(ls *.dmg | grep -v arm64 | head -n1)
+          test -n "$exe" && test -n "$dmg_arm64" && test -n "$dmg_x64"
+          cp "$exe" genoffice-windows-x64.exe
+          cp "$dmg_arm64" genoffice-macos-arm64.dmg
+          cp "$dmg_x64" genoffice-macos-x64.dmg
+          rm -f "$exe" "$dmg_arm64" "$dmg_x64" SHA256SUMS.txt
+          sha256sum -- * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+          target="${{ inputs.tag_target }}"
+          [ -n "$target" ] || target="$GITHUB_SHA"
+          gh release create "v$VERSION" -R "$GITHUB_REPOSITORY" --draft --target "$target" \
+            --title "GenOffice $VERSION (Hungarian UI)" \
+            --notes "GenOffice $VERSION with the complete Hungarian interface of upstream PR genspark-ai/genoffice#2716 (terminology aligned with Microsoft's official Hungarian Office terms). Built from the fork's hu-release branch. The installers are unsigned: on Windows SmartScreen asks once (More info → Run anyway); on macOS use System Settings › Privacy & Security › Open Anyway after the first refused start." \
+            -- *
