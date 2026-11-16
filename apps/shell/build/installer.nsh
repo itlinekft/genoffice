@@ -89,6 +89,10 @@
 !macroend
 
 !macro customInstall
+  ; Fork (Hungarian) build: it bakes no update feed. An app-update.yml left in
+  ; this folder by an earlier upstream install points the updater at the
+  ; upstream English release, which would replace this build, so remove it.
+  Delete "$INSTDIR\resources\app-update.yml"
   Push "$INSTDIR\resources\cli"
   Call GenOfficeAddToUserPath
   !insertmacro GenOfficeRegisterShellNew "docx" "Word Document"
