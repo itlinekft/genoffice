@@ -114,7 +114,10 @@ jobs:
           sha256sum -- * > SHA256SUMS.txt
           cat SHA256SUMS.txt
           target="${{ inputs.tag_target }}"
-          [ -n "$target" ] || target="$GITHUB_SHA"
+          # the API rejects short SHAs here (Release.target_commitish is
+          # invalid, measured 2026-11-15): accept a full 40-hex sha only,
+          # else fall back to the dispatched commit
+          if ! echo "$target" | grep -Eq '^[0-9a-f]{40}$'; then target="$GITHUB_SHA"; fi
           gh release create "v$VERSION" -R "$GITHUB_REPOSITORY" --draft --target "$target" \
             --title "GenOffice $VERSION (Hungarian UI)" \
             --notes "GenOffice $VERSION with the complete Hungarian interface of upstream PR genspark-ai/genoffice#2716 (terminology aligned with Microsoft's official Hungarian Office terms). Built from the fork's hu-release branch. The installers are unsigned: on Windows SmartScreen asks once (More info → Run anyway); on macOS use System Settings › Privacy & Security › Open Anyway after the first refused start." \

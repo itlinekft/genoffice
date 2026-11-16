@@ -959,6 +959,15 @@ if (updateUrl) {
       channel: 'latest',
     },
   ]
+} else {
+  // Fork release builds: bake NO update feed. With publish left unset,
+  // electron-builder on CI resolves an implicit GitHub provider from
+  // package.json "repository" — the upstream repo — and writes an
+  // app-update.yml that would make a fork build offer and install the
+  // upstream release, silently replacing this build. publish: null opts
+  // the whole build out of update-info generation (getPublishConfigs
+  // returns null → no app-update.yml; the app's updater stays inactive).
+  config.publish = null
 }
 
 // CI's "-c.extraMetadata.version=..." CLI override deep-merges with this block,
